@@ -4,42 +4,62 @@ import (
 	"database/sql"
 	"log"
 
+	applicationaccount "GCFeed/internal/application/account"
 	infraconfig "GCFeed/internal/infra/config"
+	infrajwt "GCFeed/internal/infra/jwt"
+	infraaccount "GCFeed/internal/infra/persistence/account"
+	inframigration "GCFeed/internal/infra/persistence/migration"
+	interfaceshttpaccount "GCFeed/internal/interfaces/http/account"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-// Register 是整个应用的"装配车间"。
-// 所有组件（数据库、服务、处理器）在这里创建并连接起来。
 func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
-	// 用 GORM 包装 database/sql 的连接池
-	gormDB, err := gorm.Open(mysql.New(mysql.Config{
-		Conn: db, // 复用之前创建的连接池
-	}), &gorm.Config{})
+	// 用 GORM 包装连接池
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{Conn: db}), &gorm.Config{
+		TranslateError: true,
+	})
 	if err != nil {
 		return err
 	}
 
-	// _ = gormDB 表示"先留着，后面几天用"
-	// 后面几天会在这里用 gormDB 自动创建表、注入到 handler
-	_ = gormDB
+	// AutoMigrate：根据 Go 结构体自动创建/更新数据库表
+	// 这是 GORM 提供的一个非常方便的功能：你不用手写 CREATE TABLE
+	if err := inframigration.AutoMigrate(gormDB); err != nil {
+		return err
+	}
+	log.Println("database migrated")
 
-	log.Println("database connection ready (gorm)")
+	// 创建 JWT 管理器
+	jwtManager, err := infrajwt.NewManager(&cfg.JWT)
+	if err != nil {
+		return err
+	}
 
-	// ========== 注册路由 ==========
+	// 装配：Repository → Service → Handler
+	accountRepo := infraaccount.New(gormDB)
+	accountService := applicationaccount.New(accountRepo, jwtManager)
+	accountHandler := interfaceshttpaccount.New(accountService)
 
-	// 健康检查接口
+	// 注册路由
 	g.GET("/health", HealthCheck)
+
+	api := g.Group("/api")
+
+	// 用户资源
+	users := api.Group("/users")
+	users.POST("", accountHandler.Register) // POST /api/users → 注册
+
+	// 会话资源（登录=创建会话）
+	sessions := api.Group("/sessions")
+	sessions.POST("", accountHandler.Login) // POST /api/sessions → 登录
 
 	log.Println("routes registered")
 	return nil
 }
 
-// HealthCheck 健康检查处理函数。
 func HealthCheck(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "All is well",
-	})
+	c.JSON(200, gin.H{"message": "All is well"})
 }
