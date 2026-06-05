@@ -23,14 +23,17 @@ func (r *Repository) Save(ctx context.Context, video *domainvideo.Video) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 先插入 video
 		vm := &VideoModel{
-			AuthorID:       video.AuthorID,
-			Title:          video.Title,
-			Description:    video.Description,
-			MediaURL:       video.MediaURL,
-			CoverURL:       video.CoverURL,
-			Status:         video.Status,
-			PublishedAt:    video.PublishedAt,
-			IdempotencyKey: video.IdempotencyKey,
+			AuthorID:    video.AuthorID,
+			Title:       video.Title,
+			Description: video.Description,
+			MediaURL:    video.MediaURL,
+			CoverURL:    video.CoverURL,
+			Status:      video.Status,
+			PublishedAt: video.PublishedAt,
+		}
+		// 幂等键为空时存 NULL，避免空字符串触发唯一索引冲突
+		if video.IdempotencyKey != "" {
+			vm.IdempotencyKey = &video.IdempotencyKey
 		}
 		if err := tx.Create(vm).Error; err != nil {
 			return err
@@ -112,7 +115,7 @@ func restoreVideo(vm *VideoModel, sm *VideoStatModel) *domainvideo.Video {
 		CoverURL:       vm.CoverURL,
 		Status:         vm.Status,
 		PublishedAt:    vm.PublishedAt,
-		IdempotencyKey: vm.IdempotencyKey,
+		IdempotencyKey: stringPtrToStr(vm.IdempotencyKey),
 		CreatedAt:      vm.CreatedAt,
 		UpdatedAt:      vm.UpdatedAt,
 	}
@@ -122,6 +125,14 @@ func restoreVideo(vm *VideoModel, sm *VideoStatModel) *domainvideo.Video {
 		v.FavoriteCount = sm.FavoriteCount
 	}
 	return v
+}
+
+// stringPtrToStr 将 *string 安全转为 string（nil → ""）。
+func stringPtrToStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 var _ domainvideo.Repository = (*Repository)(nil)

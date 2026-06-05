@@ -15,10 +15,10 @@ const TokenTypeAccess = "access"
 // Claims 是 JWT 里面存的自定义数据。
 // 你可以把它理解为"手环上写的信息"。
 type Claims struct {
-	UserID    int64  `json:"user_id"`
-	Role      string `json:"role"`
-	TokenType string `json:"token_type"`
-	jwt.RegisteredClaims // JWT 标准字段（过期时间等）
+	UserID               int64  `json:"user_id"`
+	Role                 string `json:"role"`
+	TokenType            string `json:"token_type"`
+	jwt.RegisteredClaims        // JWT 标准字段（过期时间等）
 }
 
 // Manager 负责签发和验证 JWT。
@@ -46,12 +46,12 @@ func NewManager(cfg *infraconfig.JWTConfig) (*Manager, error) {
 func (m *Manager) IssueAccessToken(userID int64, role string) (string, error) {
 	now := time.Now()
 	claims := &Claims{
-		UserID:		userID,
-		Role:		role,
-		TokenType:	TokenTypeAccess,
+		UserID:    userID,
+		Role:      role,
+		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTTL)), //过期时间
-			IssuedAt:  jwt.NewNumericDate(now), //签发时间
+			IssuedAt:  jwt.NewNumericDate(now),                  //签发时间
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -80,4 +80,3 @@ func (m *Manager) ParseAndValidateToken(tokenString string, tokenType string) (*
 	}
 	return claims, nil
 }
-

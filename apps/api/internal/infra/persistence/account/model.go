@@ -3,9 +3,9 @@ package infraaccount
 // AccountModel 是 user 表在 Go 中的映射。
 // GORM 会根据这个结构体自动创建和维护数据库表。
 type AccountModel struct {
-	ID        int64  `gorm:"column:id;primaryKey;autoIncrement"`                      // 主键，自增
-	Account   string `gorm:"column:account;type:varchar(191);uniqueIndex;not null"`   // 唯一索引，不能重复
-	Password  string `gorm:"column:password;type:varchar(255);not null"`              // 哈希后的密码
+	ID        int64  `gorm:"column:id;primaryKey;autoIncrement"`                    // 主键，自增
+	Account   string `gorm:"column:account;type:varchar(191);uniqueIndex;not null"` // 唯一索引，不能重复
+	Password  string `gorm:"column:password;type:varchar(255);not null"`            // 哈希后的密码
 	Nickname  string `gorm:"column:nickname;type:varchar(64);not null"`
 	AvatarURL string `gorm:"column:avatar_url;type:varchar(512);default:''"`
 	Bio       string `gorm:"column:bio;type:varchar(512);default:''"`

@@ -12,7 +12,7 @@ type VideoModel struct {
 	CoverURL       string    `gorm:"column:cover_url;type:varchar(512)"`
 	Status         int       `gorm:"column:status;not null;default:1"`
 	PublishedAt    time.Time `gorm:"column:published_at"`
-	IdempotencyKey string    `gorm:"column:idempotency_key;type:varchar(128);uniqueIndex"`
+	IdempotencyKey *string   `gorm:"column:idempotency_key;type:varchar(128);uniqueIndex"`
 	CreatedAt      time.Time `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt      time.Time `gorm:"column:updated_at;autoUpdateTime"`
 }

@@ -35,31 +35,31 @@ func New(account, password, nickname string) (*User, error) {
 	account = strings.TrimSpace(account)
 	password = strings.TrimSpace(password)
 	nickname = strings.TrimSpace(nickname)
-	
+
 	//第二步：逐项检查账号是否已存在：
 	if account == "" {
-		return nil, ErrEmptyAccount//账号不能为空
+		return nil, ErrEmptyAccount //账号不能为空
 	}
 	if password == "" {
-		return nil, ErrEmptyPassword//密码不能为空
+		return nil, ErrEmptyPassword //密码不能为空
 	}
 	if nickname == "" {
-		return nil, ErrEmptyNickname//昵称不能为空
+		return nil, ErrEmptyNickname //昵称不能为空
 	}
 
 	//第三步：密码哈希
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, ErrHashPasswordFailed//密码哈希失败	
+		return nil, ErrHashPasswordFailed //密码哈希失败
 	}
 
 	//第四步：组装用户对象。返回
 	return &User{
-		Account:   account,
-		Password:  string(hashedPassword), // 哈希后的密码
-		Nickname:  nickname,
-		Role:      RoleUser,              // 默认角色通用户角色
-		Status:    StatusNormal,          // 默认状态正常
+		Account:  account,
+		Password: string(hashedPassword), // 哈希后的密码
+		Nickname: nickname,
+		Role:     RoleUser,     // 默认角色通用户角色
+		Status:   StatusNormal, // 默认状态正常
 	}, nil
 }
 
@@ -67,11 +67,11 @@ func New(account, password, nickname string) (*User, error) {
 func (u *User) Authenticate(password string) error {
 	password = strings.TrimSpace(password)
 	if password == "" {
-		return ErrEmptyPassword//密码不能为空
+		return ErrEmptyPassword //密码不能为空
 	}
 	// bcrypt.CompareHashAndPassword：把用户输入的密码跟数据库存的哈希比对
 	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
-		return ErrInvalidCredentials//密码错误
+		return ErrInvalidCredentials //密码错误
 	}
 	return nil
 }

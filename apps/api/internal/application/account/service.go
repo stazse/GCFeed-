@@ -51,7 +51,7 @@ func (s *Service) Register(ctx context.Context, account, password, nickname stri
 	//第一步：用领域层规则创建用户（检查输入，哈希密码）
 	user, err := domainaccount.New(account, password, nickname)
 	if err != nil {
-		return nil, err//参不合法，返回错误
+		return nil, err //参不合法，返回错误
 	}
 
 	//第二步：保存用户到数据库

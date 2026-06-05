@@ -5,13 +5,16 @@ import (
 	"log"
 
 	applicationaccount "GCFeed/internal/application/account"
+	applicationfeed "GCFeed/internal/application/feed"
 	applicationvideo "GCFeed/internal/application/video"
 	infraconfig "GCFeed/internal/infra/config"
 	infrajwt "GCFeed/internal/infra/jwt"
 	infraaccount "GCFeed/internal/infra/persistence/account"
+	infrafeed "GCFeed/internal/infra/persistence/feed"
 	inframigration "GCFeed/internal/infra/persistence/migration"
 	infravideo "GCFeed/internal/infra/persistence/video"
 	interfaceshttpaccount "GCFeed/internal/interfaces/http/account"
+	interfaceshttpfeed "GCFeed/internal/interfaces/http/feed"
 	interfaceshttpmiddleware "GCFeed/internal/interfaces/http/middleware"
 	interfaceshttpupload "GCFeed/internal/interfaces/http/upload"
 	interfaceshttpvideo "GCFeed/internal/interfaces/http/video"
@@ -47,6 +50,11 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	videoRepo := infravideo.New(gormDB)
 	videoService := applicationvideo.New(videoRepo)
 	videoHandler := interfaceshttpvideo.New(videoService)
+
+	// Feed 模块装配
+	feedRepo := infrafeed.New(gormDB)
+	feedService := applicationfeed.New(feedRepo)
+	feedHandler := interfaceshttpfeed.New(feedService)
 
 	// 上传模块
 	uploadHandler := interfaceshttpupload.New("./uploads")
@@ -86,6 +94,9 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 
 	// 我的作品
 	users.GET("/me/videos", authMiddleware, videoHandler.ListMine)
+
+	// Feed 流
+	api.GET("/feed-items", feedHandler.ListFeedItems)
 
 	log.Println("routes registered")
 	return nil

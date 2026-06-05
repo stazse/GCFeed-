@@ -21,14 +21,14 @@ const (
 // Video 是视频聚合根。
 type Video struct {
 	ID             int64
-	AuthorID       int64     // 谁发的
+	AuthorID       int64 // 谁发的
 	Title          string
 	Description    string
-	MediaURL       string    // 视频文件路径
-	CoverURL       string    // 封面图路径
+	MediaURL       string // 视频文件路径
+	CoverURL       string // 封面图路径
 	Status         int
 	PublishedAt    time.Time
-	IdempotencyKey string    // 幂等键
+	IdempotencyKey string // 幂等键
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 
