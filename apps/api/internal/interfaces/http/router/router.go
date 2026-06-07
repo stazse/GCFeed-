@@ -6,16 +6,19 @@ import (
 
 	applicationaccount "GCFeed/internal/application/account"
 	applicationfeed "GCFeed/internal/application/feed"
+	applicationinteraction "GCFeed/internal/application/interaction"
 	applicationvideo "GCFeed/internal/application/video"
 	infracache "GCFeed/internal/infra/cache"
 	infraconfig "GCFeed/internal/infra/config"
 	infrajwt "GCFeed/internal/infra/jwt"
 	infraaccount "GCFeed/internal/infra/persistence/account"
 	infrafeed "GCFeed/internal/infra/persistence/feed"
+	infrainteraction "GCFeed/internal/infra/persistence/interaction"
 	inframigration "GCFeed/internal/infra/persistence/migration"
 	infravideo "GCFeed/internal/infra/persistence/video"
 	interfaceshttpaccount "GCFeed/internal/interfaces/http/account"
 	interfaceshttpfeed "GCFeed/internal/interfaces/http/feed"
+	interfaceshttpinteraction "GCFeed/internal/interfaces/http/interaction"
 	interfaceshttpmiddleware "GCFeed/internal/interfaces/http/middleware"
 	interfaceshttpupload "GCFeed/internal/interfaces/http/upload"
 	interfaceshttpvideo "GCFeed/internal/interfaces/http/video"
@@ -113,6 +116,21 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 
 	// Feed 流
 	api.GET("/feed-items", feedHandler.ListFeedItems)
+
+	// --- 互动模块装配 ---
+	interactionRepo := infrainteraction.New(gormDB)
+	interactionService := applicationinteraction.New(interactionRepo)
+	interactionHandler := interfaceshttpinteraction.New(interactionService)
+
+	// --- 互动路由 ---
+	videos.PUT("/:videoId/like", authMiddleware, interactionHandler.Like)
+	videos.DELETE("/:videoId/like", authMiddleware, interactionHandler.Unlike)
+	videos.PUT("/:videoId/favorite", authMiddleware, interactionHandler.Favorite)
+	videos.DELETE("/:videoId/favorite", authMiddleware, interactionHandler.Unfavorite)
+	videos.POST("/:videoId/comments", authMiddleware, interactionHandler.CreateComment)
+	videos.GET("/:videoId/comments", interactionHandler.ListComments)
+
+	api.DELETE("/comments/:commentId", authMiddleware, interactionHandler.DeleteComment)
 
 	log.Println("routes registered")
 	return nil
