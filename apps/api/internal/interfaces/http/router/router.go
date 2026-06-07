@@ -7,6 +7,7 @@ import (
 	applicationaccount "GCFeed/internal/application/account"
 	applicationfeed "GCFeed/internal/application/feed"
 	applicationvideo "GCFeed/internal/application/video"
+	infracache "GCFeed/internal/infra/cache"
 	infraconfig "GCFeed/internal/infra/config"
 	infrajwt "GCFeed/internal/infra/jwt"
 	infraaccount "GCFeed/internal/infra/persistence/account"
@@ -52,8 +53,23 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	videoHandler := interfaceshttpvideo.New(videoService)
 
 	// Feed 模块装配
+	// Redis 是可选的：配置文件里有 Redis 地址才初始化
+	var feedCache *infracache.FeedCache
+	if cfg.Redis.Addr != "" {
+		redisClient := infracache.NewRedisClient(cfg.Redis)
+		feedCache = infracache.NewFeedCache(redisClient)
+		log.Println("redis cache enabled")
+	} else {
+		log.Println("redis cache disabled (no addr configured)")
+	}
+
 	feedRepo := infrafeed.New(gormDB)
-	feedService := applicationfeed.New(feedRepo)
+	// 用函数选项注入缓存
+	var feedOpts []func(*applicationfeed.Service)
+	if feedCache != nil {
+		feedOpts = append(feedOpts, applicationfeed.WithFeedCache(feedCache))
+	}
+	feedService := applicationfeed.New(feedRepo, feedOpts...)
 	feedHandler := interfaceshttpfeed.New(feedService)
 
 	// 上传模块
