@@ -22,6 +22,9 @@ import (
 	interfaceshttpmiddleware "GCFeed/internal/interfaces/http/middleware"
 	interfaceshttpupload "GCFeed/internal/interfaces/http/upload"
 	interfaceshttpvideo "GCFeed/internal/interfaces/http/video"
+	interfaceshttprelation "GCFeed/internal/interfaces/http/relation"
+	infrarelation "GCFeed/internal/infra/persistence/relation"
+	applicationrelation "GCFeed/internal/application/relation"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
@@ -131,6 +134,16 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	videos.GET("/:videoId/comments", interactionHandler.ListComments)
 
 	api.DELETE("/comments/:commentId", authMiddleware, interactionHandler.DeleteComment)
+
+	// 关注关系
+	relationRepo := infrarelation.New(gormDB)
+	relationService := applicationrelation.New(relationRepo)
+	relationHandler := interfaceshttprelation.New(relationService)
+
+	users.PUT("/me/following/:targetUserId", authMiddleware, relationHandler.Follow)
+	users.DELETE("/me/following/:targetUserId", authMiddleware, relationHandler.Unfollow)
+	users.GET("/me/following", authMiddleware, relationHandler.ListFollowing)
+	users.GET("/me/followers", authMiddleware, relationHandler.ListFollowers)
 
 	log.Println("routes registered")
 	return nil

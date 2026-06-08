@@ -3,6 +3,7 @@ package migration
 import (
 	infraaccount "GCFeed/internal/infra/persistence/account"
 	infrainteraction "GCFeed/internal/infra/persistence/interaction"
+	infrarelation "GCFeed/internal/infra/persistence/relation"
 	infravideo "GCFeed/internal/infra/persistence/video"
 
 	"gorm.io/gorm"
@@ -17,5 +18,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&infravideo.VideoStatModel{},
 		&infrainteraction.ActionModel{},
 		&infrainteraction.CommentModel{},
+		&infrarelation.FollowModel{},
+		&infrarelation.RelationStatModel{},
 	)
 }
