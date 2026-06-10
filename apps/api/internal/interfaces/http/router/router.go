@@ -1,12 +1,14 @@
 package interfaceshttprouter
 
 import (
+	"context"
 	"database/sql"
 	"log"
 
 	applicationaccount "GCFeed/internal/application/account"
 	applicationfeed "GCFeed/internal/application/feed"
 	applicationinteraction "GCFeed/internal/application/interaction"
+	applicationrelation "GCFeed/internal/application/relation"
 	applicationvideo "GCFeed/internal/application/video"
 	infracache "GCFeed/internal/infra/cache"
 	infraconfig "GCFeed/internal/infra/config"
@@ -15,16 +17,15 @@ import (
 	infrafeed "GCFeed/internal/infra/persistence/feed"
 	infrainteraction "GCFeed/internal/infra/persistence/interaction"
 	inframigration "GCFeed/internal/infra/persistence/migration"
+	infrarelation "GCFeed/internal/infra/persistence/relation"
 	infravideo "GCFeed/internal/infra/persistence/video"
 	interfaceshttpaccount "GCFeed/internal/interfaces/http/account"
 	interfaceshttpfeed "GCFeed/internal/interfaces/http/feed"
 	interfaceshttpinteraction "GCFeed/internal/interfaces/http/interaction"
 	interfaceshttpmiddleware "GCFeed/internal/interfaces/http/middleware"
+	interfaceshttprelation "GCFeed/internal/interfaces/http/relation"
 	interfaceshttpupload "GCFeed/internal/interfaces/http/upload"
 	interfaceshttpvideo "GCFeed/internal/interfaces/http/video"
-	interfaceshttprelation "GCFeed/internal/interfaces/http/relation"
-	infrarelation "GCFeed/internal/infra/persistence/relation"
-	applicationrelation "GCFeed/internal/application/relation"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
@@ -34,18 +35,20 @@ import (
 func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	// 用 GORM 包装连接池
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{Conn: db}), &gorm.Config{
-		TranslateError: true,
+		TranslateError:                           true,
+		DisableForeignKeyConstraintWhenMigrating: true, // 避免 GORM 误将唯一索引当 FK 删除
 	})
 	if err != nil {
 		return err
 	}
 
 	// AutoMigrate：根据 Go 结构体自动创建/更新数据库表
-	// 这是 GORM 提供的一个非常方便的功能：你不用手写 CREATE TABLE
 	if err := inframigration.AutoMigrate(gormDB); err != nil {
-		return err
+		log.Printf("auto-migrate warning: %v (continuing anyway)", err)
+		// 不阻塞启动：表已存在时继续运行
+	} else {
+		log.Println("database migrated")
 	}
-	log.Println("database migrated")
 
 	// 创建 JWT 管理器
 	jwtManager, err := infrajwt.NewManager(&cfg.JWT)
@@ -58,25 +61,48 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	videoService := applicationvideo.New(videoRepo)
 	videoHandler := interfaceshttpvideo.New(videoService)
 
-	// Feed 模块装配
 	// Redis 是可选的：配置文件里有 Redis 地址才初始化
 	var feedCache *infracache.FeedCache
 	if cfg.Redis.Addr != "" {
 		redisClient := infracache.NewRedisClient(cfg.Redis)
-		feedCache = infracache.NewFeedCache(redisClient)
-		log.Println("redis cache enabled")
+		// 验证 Redis 是否真正可达，不可达则不启用缓存
+		if err := infracache.Ping(context.Background(), redisClient); err != nil {
+			log.Printf("redis ping failed (%v), cache disabled", err)
+		} else {
+			feedCache = infracache.NewFeedCache(redisClient)
+			log.Println("redis cache enabled")
+		}
 	} else {
 		log.Println("redis cache disabled (no addr configured)")
 	}
 
+	// --- Feed 模块装配 ---
 	feedRepo := infrafeed.New(gormDB)
-	// 用函数选项注入缓存
-	var feedOpts []func(*applicationfeed.Service)
+	feedOptions := []func(*applicationfeed.Service){}
 	if feedCache != nil {
-		feedOpts = append(feedOpts, applicationfeed.WithFeedCache(feedCache))
+		feedOptions = append(feedOptions,
+			applicationfeed.WithFeedCache(feedCache),
+			applicationfeed.WithHotProvider(feedCache), // feedCache 同时实现 HotFeedProvider
+		)
 	}
-	feedService := applicationfeed.New(feedRepo, feedOpts...)
+	// feedCache == nil 时 hotProvider 也为 nil，getHotFeed 会降级为 timeline
+	feedService := applicationfeed.New(feedRepo, feedOptions...)
 	feedHandler := interfaceshttpfeed.New(feedService)
+
+	// --- 互动模块装配 ---
+	interactionRepo := infrainteraction.New(gormDB)
+	interactionOptions := []func(*applicationinteraction.Service){}
+	if feedCache != nil {
+		interactionOptions = append(interactionOptions,
+			applicationinteraction.WithHotScoreRecorder(feedCache))
+	}
+	interactionService := applicationinteraction.New(interactionRepo, interactionOptions...)
+	interactionHandler := interfaceshttpinteraction.New(interactionService)
+
+	// --- 关注关系装配 ---
+	relationRepo := infrarelation.New(gormDB)
+	relationService := applicationrelation.New(relationRepo)
+	relationHandler := interfaceshttprelation.New(relationService)
 
 	// 上传模块
 	uploadHandler := interfaceshttpupload.New("./uploads")
@@ -84,31 +110,31 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	// 鉴权中间件
 	authMiddleware := interfaceshttpmiddleware.NewJWTAuth(jwtManager)
 
-	// 静态文件访问（让上传的文件可以通过 URL 直接访问）
+	// 静态文件访问
 	g.Static("/uploads", "./uploads")
 
-	// 装配：Repository → Service → Handler
+	// 用户模块装配
 	accountRepo := infraaccount.New(gormDB)
 	accountService := applicationaccount.New(accountRepo, jwtManager)
 	accountHandler := interfaceshttpaccount.New(accountService)
 
-	// 注册路由
+	// ========== 注册路由 ==========
 	g.GET("/health", HealthCheck)
 
 	api := g.Group("/api")
 
 	// 用户资源
 	users := api.Group("/users")
-	users.POST("", accountHandler.Register) // POST /api/users → 注册
+	users.POST("", accountHandler.Register)
 
-	// 会话资源（登录=创建会话）
+	// 会话资源
 	sessions := api.Group("/sessions")
-	sessions.POST("", accountHandler.Login) // POST /api/sessions → 登录
+	sessions.POST("", accountHandler.Login)
 
 	// 视频资源
 	videos := api.Group("/videos")
-	videos.POST("", authMiddleware, videoHandler.Create) // 发布视频（需登录）
-	videos.GET("/:videoId", videoHandler.Get)            // 视频详情（公开）
+	videos.POST("", authMiddleware, videoHandler.Create)
+	videos.GET("/:videoId", videoHandler.Get)
 
 	// 上传（需登录）
 	uploadGroup := api.Group("/uploads", authMiddleware)
@@ -120,26 +146,16 @@ func Register(g *gin.Engine, cfg *infraconfig.Config, db *sql.DB) error {
 	// Feed 流
 	api.GET("/feed-items", feedHandler.ListFeedItems)
 
-	// --- 互动模块装配 ---
-	interactionRepo := infrainteraction.New(gormDB)
-	interactionService := applicationinteraction.New(interactionRepo)
-	interactionHandler := interfaceshttpinteraction.New(interactionService)
-
-	// --- 互动路由 ---
+	// 互动路由
 	videos.PUT("/:videoId/like", authMiddleware, interactionHandler.Like)
 	videos.DELETE("/:videoId/like", authMiddleware, interactionHandler.Unlike)
 	videos.PUT("/:videoId/favorite", authMiddleware, interactionHandler.Favorite)
 	videos.DELETE("/:videoId/favorite", authMiddleware, interactionHandler.Unfavorite)
 	videos.POST("/:videoId/comments", authMiddleware, interactionHandler.CreateComment)
 	videos.GET("/:videoId/comments", interactionHandler.ListComments)
-
 	api.DELETE("/comments/:commentId", authMiddleware, interactionHandler.DeleteComment)
 
-	// 关注关系
-	relationRepo := infrarelation.New(gormDB)
-	relationService := applicationrelation.New(relationRepo)
-	relationHandler := interfaceshttprelation.New(relationService)
-
+	// 关注关系路由
 	users.PUT("/me/following/:targetUserId", authMiddleware, relationHandler.Follow)
 	users.DELETE("/me/following/:targetUserId", authMiddleware, relationHandler.Unfollow)
 	users.GET("/me/following", authMiddleware, relationHandler.ListFollowing)

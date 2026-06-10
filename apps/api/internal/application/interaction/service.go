@@ -14,23 +14,55 @@ var (
 	ErrDeleteCommentFailed = errors.New("failed to delete comment")
 )
 
-type Service struct {
-	repo domaininteraction.Repository
+// HotRecorder 热度分记录器的最小接口。
+type HotRecorder interface {
+	RecordHotScore(ctx context.Context, videoID int64, delta int) error
 }
 
-func New(repo domaininteraction.Repository) *Service {
-	return &Service{repo: repo}
+type Service struct {
+	repo domaininteraction.Repository
+	hotRecorder HotRecorder // 热度分记录器
+}
+
+func WithHotScoreRecorder(recorder HotRecorder) func(*Service) {
+	return func(s *Service) { s.hotRecorder = recorder }
+}
+
+func New(repo domaininteraction.Repository, opts ...func(*Service)) *Service {
+	s := &Service{repo: repo}
+	for _, opt := range opts { opt(s) }
+	return s
 }
 
 // SetLike 点赞（active=true）或取消点赞（active=false）。
 func (s *Service) SetLike(ctx context.Context, userID, videoID int64, active bool, idempotencyKey string) (bool, int, error) {
 	isActive, likeCount, _, err := s.repo.SetAction(ctx, userID, videoID, domaininteraction.ActionLike, active, idempotencyKey)
+	if err != nil {
+		return false, 0, err
+	}
+
+	if s.hotRecorder != nil {
+		delta := 3
+		if !active {
+			delta = -3
+		}
+		_ = s.hotRecorder.RecordHotScore(ctx, videoID, delta)
+	}
 	return isActive, likeCount, err
 }
 
 // SetFavorite 收藏或取消收藏。
 func (s *Service) SetFavorite(ctx context.Context, userID, videoID int64, active bool, idempotencyKey string) (bool, int, error) {
 	isActive, _, favCount, err := s.repo.SetAction(ctx, userID, videoID, domaininteraction.ActionFavorite, active, idempotencyKey)
+	if err != nil {
+		return false, 0, err
+	}
+
+	if s.hotRecorder != nil {
+		delta := 4
+		if !active { delta = -4 }
+		_ = s.hotRecorder.RecordHotScore(ctx, videoID, delta)
+	}
 	return isActive, favCount, err
 }
 

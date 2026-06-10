@@ -26,8 +26,13 @@ func (r *Repository) SetAction(ctx context.Context, userID, videoID int64, actio
 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 第一步：查找或创建行为记录
-		var action ActionModel
-		err := tx.Where("user_id = ? AND video_id = ? AND action = ?", userID, videoID, actionType).
+		// 关键：用 struct 作 Where 条件，GORM 才会在 INSERT 时把字段值填入新行
+		action := ActionModel{
+			UserID:  userID,
+			VideoID: videoID,
+			Action:  actionType,
+		}
+		err := tx.Where(&action).
 			Attrs(ActionModel{
 				Status:         domaininteraction.ActionStatusCanceled,
 				IdempotencyKey: idempotencyKey,

@@ -7,6 +7,7 @@ import (
 // Feed 场景常量
 const (
 	SceneTimeline = "timeline" // 时间线（全部视频按时间）
+	SceneHot      = "hot" // 热榜（最近 60 分钟热门视频）
 )
 
 // NormalizeScene 清洗场景参数（去空格、给默认值）

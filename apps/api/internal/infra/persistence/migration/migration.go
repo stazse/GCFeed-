@@ -1,6 +1,8 @@
 package migration
 
 import (
+	"log"
+
 	infraaccount "GCFeed/internal/infra/persistence/account"
 	infrainteraction "GCFeed/internal/infra/persistence/interaction"
 	infrarelation "GCFeed/internal/infra/persistence/relation"
@@ -10,9 +12,9 @@ import (
 )
 
 // AutoMigrate 根据所有模型自动创建/更新数据库表。
-// 后续每增加新模块，就把模型加到这个列表里。
+// 每个表独立迁移，避免一个表失败阻塞后续表。
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	models := []any{
 		&infraaccount.AccountModel{},
 		&infravideo.VideoModel{},
 		&infravideo.VideoStatModel{},
@@ -20,5 +22,15 @@ func AutoMigrate(db *gorm.DB) error {
 		&infrainteraction.CommentModel{},
 		&infrarelation.FollowModel{},
 		&infrarelation.RelationStatModel{},
-	)
+	}
+
+	var lastErr error
+	for _, m := range models {
+		if err := db.AutoMigrate(m); err != nil {
+			log.Printf("auto-migrate %T warning: %v", m, err)
+			lastErr = err
+		}
+	}
+
+	return lastErr
 }

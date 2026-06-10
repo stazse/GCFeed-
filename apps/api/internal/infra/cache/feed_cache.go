@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+	"strconv"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -116,4 +117,75 @@ func (c *FeedCache) SetVideoCard(ctx context.Context, card *VideoCard) error {
 		return err
 	}
 	return c.client.Set(ctx, key, data, 15*time.Minute).Err()
+}
+
+// RecordHotScore 记录一次互动热度。
+// videoID: 被操作的视频
+// delta: 热度变化（点赞=3, 收藏=4, 评论=5, 取消=负数）
+func (c *FeedCache) RecordHotScore(ctx context.Context, videoID int64, delta int) error {
+	now := time.Now().UTC()
+	// 格式化成 yyyyMMddHHmm（分钟粒度）
+	bucketKey := fmt.Sprintf("feed:hot:minute:v1:%s", now.Format("200601021504"))
+	member := strconv.FormatInt(videoID, 10)
+
+	// ZINCRBY：给成员加分数（delta 可以是负数）
+	if err := c.client.ZIncrBy(ctx, bucketKey, float64(delta), member).Err(); err != nil {
+		return err
+	}
+
+	// 设置过期时间：2 小时（保证窗口足够覆盖 1 小时 + 缓冲）
+	c.client.Expire(ctx, bucketKey, 2*time.Hour)
+
+	return nil
+}
+
+// GetHotRanking 获取最近 windowMinutes 分钟的热度排行榜。
+// 返回 video_id 列表（按热度从高到低），以及用于分页的当前最后一名分数。
+func (c *FeedCache) GetHotRanking(ctx context.Context, windowMinutes int, limit int) ([]int64, error) {
+	now := time.Now().UTC()
+	bucketKeys := make([]string, 0, windowMinutes)
+
+	// 收集最近 N 个分钟桶的 key
+	for i := 0; i < windowMinutes; i++ {
+		t := now.Add(-time.Duration(i) * time.Minute)
+		key := fmt.Sprintf("feed:hot:minute:v1:%s", t.Format("200601021504"))
+		bucketKeys = append(bucketKeys, key)
+	}
+
+	if len(bucketKeys) == 0 {
+		return nil, nil
+	}
+
+	// 生成临时合并 key
+	windowKey := fmt.Sprintf("feed:hot:window:v1:%d", now.Unix())
+
+	// ZUNIONSTORE：合并所有桶（AGGREGATE SUM 表示同一 video_id 分数累加）
+	c.client.ZUnionStore(ctx, windowKey, &redis.ZStore{
+		Keys:      bucketKeys,
+		Aggregate: "SUM",
+	})
+
+	// 设置合并结果的过期时间（1 分钟，因为下一分钟窗口就变了）
+	c.client.Expire(ctx, windowKey, 1*time.Minute)
+
+	// 取热度前 N 名（按分数从高到低）
+	members, err := c.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:   windowKey,
+		Start: 0,
+		Stop:  int64(limit - 1),
+		Rev:   true, // 倒序 = 高分在前
+	}).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	videoIDs := make([]int64, 0, len(members))
+	for _, m := range members {
+		id, _ := strconv.ParseInt(m, 10, 64)
+		if id > 0 {
+			videoIDs = append(videoIDs, id)
+		}
+	}
+
+	return videoIDs, nil
 }
